@@ -1,0 +1,14 @@
+{
+  "name": "@moltbot/memory-core",
+  "version": "2026.1.26",
+  "type": "module",
+  "description": "Clawdbot core memory search plugin",
+  "clawdbot": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "clawdbot": "workspace:*"
+  }
+}
