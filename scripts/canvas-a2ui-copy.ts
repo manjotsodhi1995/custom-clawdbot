@@ -23,9 +23,11 @@ export async function copyA2uiAssets({
     await fs.stat(path.join(srcDir, "index.html"));
     await fs.stat(path.join(srcDir, "a2ui.bundle.js"));
   } catch (err) {
-    const message =
-      'Missing A2UI bundle assets. Run "pnpm canvas:a2ui:bundle" and retry.';
-    throw new Error(message, { cause: err });
+    console.warn(
+      'A2UI bundle assets not found; skipping copy (Canvas feature disabled). ' +
+      'Run "pnpm canvas:a2ui:bundle" if Canvas support is needed.',
+    );
+    return;
   }
   await fs.mkdir(path.dirname(outDir), { recursive: true });
   await fs.cp(srcDir, outDir, { recursive: true });

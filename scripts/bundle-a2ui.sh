@@ -11,6 +11,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HASH_FILE="$ROOT_DIR/src/canvas-host/a2ui/.bundle.hash"
 OUTPUT_FILE="$ROOT_DIR/src/canvas-host/a2ui/a2ui.bundle.js"
 
+# Check if vendor/a2ui directory exists, skip if not (optional Canvas feature)
+if [[ ! -d "$ROOT_DIR/vendor/a2ui/renderers/lit" ]]; then
+  echo "vendor/a2ui/renderers/lit not found; skipping A2UI bundle (Canvas feature disabled)."
+  exit 0
+fi
+
 INPUT_PATHS=(
   "$ROOT_DIR/package.json"
   "$ROOT_DIR/pnpm-lock.yaml"

@@ -9,19 +9,21 @@ RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
 WORKDIR /app
 
 # Copy package files first for layer caching
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml ./
 COPY .npmrc ./
 COPY ui/package.json ./ui/package.json
 COPY patches ./patches
 COPY scripts ./scripts
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Copy lock file if it exists, otherwise pnpm will generate one
+COPY pnpm-lock.yaml* ./
 
-# Copy source files including vendor and apps/shared needed for build
+# Install dependencies
+RUN pnpm install
+
+# Copy source files including apps/shared needed for build
 COPY src ./src
 COPY ui ./ui
-COPY vendor ./vendor
 COPY apps/shared ./apps/shared
 COPY assets ./assets
 COPY skills ./skills
