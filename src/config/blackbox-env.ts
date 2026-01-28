@@ -20,7 +20,7 @@ export const clawdbotApiConfig = {
 
 export const remoteCodeConfig = {
   get apiUrl(): string {
-    return process.env.REMOTE_CODE_API_URL || "https://unpalpable-snottily-jacob.ngrok-free.dev";
+    return process.env.REMOTE_CODE_API_URL || "http://localhost:3000";
   },
 
   get isConfigured(): boolean {

@@ -499,38 +499,133 @@ export async function runEmbeddedAttempt(
       // Special handling for blackbox-remote-code: automatically forward messages to remote-code webhook
       // blackbox-remote-code intercepts LLM calls and forwards them directly to remote-code API
       if (params.provider === "blackbox-remote-code") {
-        console.log(`[blackbox-remote-code] Configuring automatic webhook forwarding`);
-        console.log(`[blackbox-remote-code] params.senderE164:`, params.senderE164);
-        console.log(`[blackbox-remote-code] params.prompt:`, params.prompt?.substring(0, 100));
-        log.debug(`blackbox-remote-code provider: messages will be forwarded to remote-code webhook`);
-        
+        console.log(`[blackbox-remote-code] ========== Webhook Configuration ==========`);
+        console.log(
+          `[blackbox-remote-code] Channel:`,
+          params.messageChannel ?? params.messageProvider ?? "unknown",
+        );
+
+        // Log all sender-related params to find phone number
+        console.log(`[blackbox-remote-code] Sender params:`);
+        console.log(`[blackbox-remote-code]   senderE164:`, params.senderE164 ?? "undefined");
+        console.log(`[blackbox-remote-code]   senderId:`, params.senderId ?? "undefined");
+        console.log(`[blackbox-remote-code]   senderName:`, params.senderName ?? "undefined");
+        console.log(
+          `[blackbox-remote-code]   senderUsername:`,
+          params.senderUsername ?? "undefined",
+        );
+        console.log(`[blackbox-remote-code]   messageTo:`, params.messageTo ?? "undefined");
+
+        console.log(`[blackbox-remote-code] Prompt preview:`, params.prompt?.substring(0, 200));
+        log.debug(
+          `blackbox-remote-code provider: messages will be forwarded to remote-code webhook`,
+        );
+
         const originalStreamFn = activeSession.agent.streamFn;
-        const REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl;
-        const CLAWDBOT_API_KEY = clawdbotApiConfig.apiKey;
+        const REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl || "http://localhost:3000";
+        const CLAWDBOT_API_KEY = clawdbotApiConfig.apiKey || "1234567890";
         const senderE164 = params.senderE164;
-        // Also try to extract phone from the prompt (WhatsApp format includes it)
+
+        // Try to extract phone from the prompt (WhatsApp format includes it)
         const promptPhoneMatch = params.prompt?.match(/\[WhatsApp\s+(\+\d+)/);
-        const phoneNumber = senderE164 || (promptPhoneMatch ? promptPhoneMatch[1] : null);
-        
-        console.log(`[blackbox-remote-code] Resolved phoneNumber:`, phoneNumber);
-        
+        console.log(
+          `[blackbox-remote-code] WhatsApp phone:`,
+          promptPhoneMatch ? promptPhoneMatch[1] : "not found",
+        );
+
+        // Signal: try UUID and also search for any phone number
+        const signalUuidMatch = params.prompt?.match(/\[Signal\s+.*?id:uuid:([a-f0-9-]+)/i);
+        console.log(
+          `[blackbox-remote-code] Signal UUID:`,
+          signalUuidMatch ? signalUuidMatch[1] : "not found",
+        );
+
+        // Try to find phone in Signal message (might be in sender name or elsewhere)
+        const signalPhoneMatch = params.prompt?.match(/\[Signal\s+[^+]*(\+\d{10,15})/);
+        console.log(
+          `[blackbox-remote-code] Signal phone search:`,
+          signalPhoneMatch ? signalPhoneMatch[1] : "not found",
+        );
+
+        // Check if senderId contains a phone number
+        const senderIdPhone = params.senderId?.match(/^\+\d{10,15}$/);
+        console.log(
+          `[blackbox-remote-code] SenderId phone:`,
+          senderIdPhone ? params.senderId : "not a phone",
+        );
+
+        // Priority: senderE164 > WhatsApp > Signal phone > senderId > Signal UUID
+        const phoneNumber =
+          senderE164 ||
+          (promptPhoneMatch ? promptPhoneMatch[1] : null) ||
+          (signalPhoneMatch ? signalPhoneMatch[1] : null) ||
+          (senderIdPhone ? params.senderId : null) ||
+          (signalUuidMatch ? signalUuidMatch[1] : null);
+
+        console.log(`[blackbox-remote-code] Final identifier:`, {
+          source: senderE164
+            ? "senderE164"
+            : promptPhoneMatch
+              ? "WhatsApp"
+              : signalPhoneMatch
+                ? "Signal phone"
+                : senderIdPhone
+                  ? "senderId"
+                  : signalUuidMatch
+                    ? "Signal UUID"
+                    : "none",
+          value: phoneNumber,
+          isUuid: signalUuidMatch && phoneNumber === signalUuidMatch[1],
+        });
+        console.log(`[blackbox-remote-code] ==========================================`);
+
         activeSession.agent.streamFn = async (model, context, options) => {
           // Extract the user message - try multiple methods
           let messageText = "";
-          
-          // Method 1: Get from params.prompt directly (most reliable for WhatsApp)
-          // Format: "System: [...]\n\n[WhatsApp +918770649309 +5m 2026-01-27 18:05 GMT+5:30] hey"
+
+          // Method 1: Get from params.prompt directly (most reliable for WhatsApp and Signal)
+          // WhatsApp Format: "System: [...]\n\n[WhatsApp +918770649309 +5m 2026-01-27 18:05 GMT+5:30] hey"
+          // Signal Format: "System: [...]\n\n[Signal Adarsh Kumar id:uuid:acecd540-ba03-44a5-9a60-8a5b2e3caff5 +6m 2026-01-28 22:58 GMT+5:30] hi"
           if (params.prompt) {
-            // Extract the actual message after the WhatsApp header
-            const whatsappMatch = params.prompt.match(/\[WhatsApp\s+\+\d+\s+[^\]]+\]\s*(.+)$/s);
+            // Try WhatsApp format first
+            const whatsappMatch = params.prompt.match(
+              /\[WhatsApp\s+\+\d+\s+[^\]]+\]\s*(.+?)(?:\n\[message_id:|$)/s,
+            );
             if (whatsappMatch) {
               messageText = whatsappMatch[1].trim();
+              console.log(
+                `[blackbox-remote-code] Message extracted via WhatsApp format (Method 1):`,
+                messageText.substring(0, 50),
+              );
+            } else {
+              // Try Signal format - extract message and remove message_id if present
+              const signalMatch = params.prompt.match(
+                /\[Signal\s+[^\]]+\]\s*(.+?)(?:\n\[message_id:|$)/s,
+              );
+              if (signalMatch) {
+                messageText = signalMatch[1].trim();
+                console.log(
+                  `[blackbox-remote-code] Message extracted via Signal format (Method 1):`,
+                  messageText.substring(0, 50),
+                );
+              } else {
+                console.log(
+                  `[blackbox-remote-code] No WhatsApp/Signal format match in prompt (Method 1)`,
+                );
+              }
             }
           }
-          
+
           // Method 2: Try context messages if prompt extraction failed
           if (!messageText) {
+            console.log(
+              `[blackbox-remote-code] Attempting Method 2: extracting from context messages`,
+            );
             const userMessages = context.messages?.filter((msg: any) => msg.role === "user") || [];
+            console.log(
+              `[blackbox-remote-code] Found ${userMessages.length} user messages in context`,
+            );
+
             for (let i = userMessages.length - 1; i >= 0; i--) {
               const msg = userMessages[i];
               let text = "";
@@ -542,36 +637,144 @@ export async function runEmbeddedAttempt(
                   text = textBlock.text;
                 }
               }
-              
+
               if (text) {
-                // Try to extract from WhatsApp format
-                const whatsappMatch = text.match(/\[WhatsApp\s+\+\d+\s+[^\]]+\]\s*(.+)$/s);
+                // Try to extract from WhatsApp format - remove message_id if present
+                const whatsappMatch = text.match(
+                  /\[WhatsApp\s+\+\d+\s+[^\]]+\]\s*(.+?)(?:\n\[message_id:|$)/s,
+                );
                 if (whatsappMatch) {
                   messageText = whatsappMatch[1].trim();
+                  console.log(
+                    `[blackbox-remote-code] Message extracted via WhatsApp format (Method 2):`,
+                    messageText.substring(0, 50),
+                  );
                   break;
                 }
-                // If no WhatsApp format, use the text directly (but skip system messages)
-                if (!text.startsWith("System:") && !text.includes("WhatsApp gateway connected")) {
-                  messageText = text.trim();
+                // Try to extract from Signal format - remove message_id if present
+                const signalMatch = text.match(/\[Signal\s+[^\]]+\]\s*(.+?)(?:\n\[message_id:|$)/s);
+                if (signalMatch) {
+                  messageText = signalMatch[1].trim();
+                  console.log(
+                    `[blackbox-remote-code] Message extracted via Signal format (Method 2):`,
+                    messageText.substring(0, 50),
+                  );
                   break;
+                }
+                // If no WhatsApp/Signal format, use the text directly (but skip system messages and message_id)
+                if (
+                  !text.startsWith("System:") &&
+                  !text.includes("WhatsApp gateway connected") &&
+                  !text.includes("Signal gateway connected")
+                ) {
+                  // Remove message_id if present
+                  const cleanText = text.replace(/\n\[message_id:.*?\]$/s, "").trim();
+                  if (cleanText) {
+                    messageText = cleanText;
+                    console.log(
+                      `[blackbox-remote-code] Message extracted via generic format (Method 2):`,
+                      messageText.substring(0, 50),
+                    );
+                    break;
+                  }
                 }
               }
             }
+
+            if (!messageText) {
+              console.log(
+                `[blackbox-remote-code] Method 2 failed: no message text extracted from context`,
+              );
+            }
           }
-          
-          console.log(`[blackbox-remote-code] streamFn called:`, {
+
+          console.log(`[blackbox-remote-code] Final extraction result:`, {
             hasPhoneNumber: !!phoneNumber,
+            phoneNumberSource: senderE164
+              ? "senderE164"
+              : promptPhoneMatch
+                ? "WhatsApp"
+                : signalUuidMatch
+                  ? "Signal UUID"
+                  : "none",
             messageTextLength: messageText?.length || 0,
             messageTextPreview: messageText?.substring(0, 100),
-            promptPreview: params.prompt?.substring(0, 200),
+            extractionMethod: messageText
+              ? params.prompt?.includes(messageText.substring(0, 20))
+                ? "Method 1 (prompt)"
+                : "Method 2 (context)"
+              : "failed",
           });
-          
-          if (messageText && phoneNumber) {
+
+          // Check if we only have UUID (no phone number) for Signal messages
+          const isSignalMessage = signalUuidMatch && phoneNumber === signalUuidMatch[1];
+          const hasPhoneNumber = phoneNumber && !isSignalMessage;
+
+          if (messageText && isSignalMessage) {
+            console.log(
+              `[blackbox-remote-code] Signal UUID detected without phone number - sending privacy settings instructions`,
+            );
+
+            const instructionMessage = `To enable phone number-based features, please update your Signal privacy settings:
+
+1. Open Signal app
+2. Go to Settings → Privacy → Phone Number
+3. Select "Who can see my number"
+4. Choose "Everyone"
+
+This will allow the system to identify you by phone number instead of UUID.
+
+Your message was: "${messageText}"`;
+
+            // Create instruction message
+            const assistantMessage: AssistantMessage = {
+              role: "assistant",
+              content: [{ type: "text", text: instructionMessage }],
+              stopReason: "stop",
+              api: model.api,
+              provider: model.provider,
+              model: model.id,
+              usage: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+              },
+              timestamp: Date.now(),
+            };
+
+            const piAiModule = await import("@mariozechner/pi-ai");
+            const stream = new (piAiModule as any).AssistantMessageEventStream();
+            queueMicrotask(() => {
+              stream.push({
+                type: "done",
+                reason: "stop",
+                message: assistantMessage,
+              });
+              stream.end();
+            });
+
+            return stream;
+          }
+
+          if (messageText && phoneNumber && hasPhoneNumber) {
+            const webhookPayload = {
+              phoneNumber: phoneNumber,
+              message: messageText,
+            };
+
             console.log(`[blackbox-remote-code] Auto-forwarding to webhook:`, {
+              url: `${REMOTE_CODE_BASE_URL}/api/clawdbot/webhook`,
               phoneNumber: phoneNumber.substring(0, 4) + "***",
               messageLength: messageText.length,
+              payload: {
+                phoneNumber: phoneNumber.substring(0, 8) + "***",
+                message: messageText.substring(0, 100) + (messageText.length > 100 ? "..." : ""),
+              },
             });
-            
+
             try {
               // Call remote-code webhook directly
               const response = await fetch(`${REMOTE_CODE_BASE_URL}/api/clawdbot/webhook`, {
@@ -580,26 +783,29 @@ export async function runEmbeddedAttempt(
                   "Content-Type": "application/json",
                   "X-Clawdbot-API-Key": CLAWDBOT_API_KEY,
                 },
-                body: JSON.stringify({
-                  phoneNumber: phoneNumber,
-                  message: messageText,
-                }),
+                body: JSON.stringify(webhookPayload),
               });
-              
+
               if (!response.ok) {
                 const errorText = await response.text().catch(() => "");
-                console.error(`[blackbox-remote-code] Webhook failed:`, response.status, errorText.substring(0, 200));
-                throw new Error(`Remote-code webhook error (${response.status}): ${errorText || response.statusText}`);
+                console.error(
+                  `[blackbox-remote-code] Webhook failed:`,
+                  response.status,
+                  errorText.substring(0, 200),
+                );
+                throw new Error(
+                  `Remote-code webhook error (${response.status}): ${errorText || response.statusText}`,
+                );
               }
-              
+
               const result = await response.json();
               const replyMessage = result.message || result.error || "Message processed";
-              
+
               console.log(`[blackbox-remote-code] Webhook response:`, {
                 success: result.success,
                 messageLength: replyMessage.length,
               });
-              
+
               // Create a message from the webhook response
               const assistantMessage: AssistantMessage = {
                 role: "assistant",
@@ -608,10 +814,17 @@ export async function runEmbeddedAttempt(
                 api: model.api,
                 provider: model.provider,
                 model: model.id,
-                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
                 timestamp: Date.now(),
               };
-              
+
               // Create a custom stream without requiring API key
               // Import the stream class dynamically to avoid type issues
               const piAiModule = await import("@mariozechner/pi-ai");
@@ -624,12 +837,12 @@ export async function runEmbeddedAttempt(
                 });
                 stream.end();
               });
-              
+
               return stream;
             } catch (error) {
               console.error(`[blackbox-remote-code] Webhook error:`, error);
               const errorMsg = error instanceof Error ? error.message : String(error);
-              
+
               // Create error message
               const errorMessage: AssistantMessage = {
                 role: "assistant",
@@ -639,10 +852,17 @@ export async function runEmbeddedAttempt(
                 api: model.api,
                 provider: model.provider,
                 model: model.id,
-                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
                 timestamp: Date.now(),
               };
-              
+
               // Create error stream without requiring API key
               const piAiModule = await import("@mariozechner/pi-ai");
               const stream = new (piAiModule as any).AssistantMessageEventStream();
@@ -654,11 +874,11 @@ export async function runEmbeddedAttempt(
                 });
                 stream.end();
               });
-              
+
               return stream;
             }
           }
-          
+
           // Fallback: use original streamFn if no message/phone
           console.warn(`[blackbox-remote-code] Missing message or phone, using original streamFn`, {
             hasPhoneNumber: !!phoneNumber,
