@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 
 import { stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
+import { clawdbotApiConfig, remoteCodeConfig } from "../../config/blackbox-env.js";
 
 const REMOTE_CODE_COMMANDS = [
   "start",
@@ -20,9 +21,8 @@ const RemoteCodeToolSchema = Type.Object({
   prompt: Type.Optional(Type.String()),
 });
 
-const REMOTE_CODE_BASE_URL =
-  process.env.REMOTE_CODE_API_URL || "http://localhost:3000";
-const CLAWDBOT_API_KEY = process.env.CLAWDBOT_API_KEY || "1234567890";
+const REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl;
+const CLAWDBOT_API_KEY = clawdbotApiConfig.apiKey;
 
 async function callRemoteCodeAPI(
   endpoint: string,

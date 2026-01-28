@@ -11,6 +11,7 @@ import {
   VENICE_MODEL_CATALOG,
 } from "../agents/venice-models.js";
 import type { ClawdbotConfig } from "../config/config.js";
+import { remoteCodeConfig } from "../config/blackbox-env.js";
 import {
   OPENROUTER_DEFAULT_MODEL_REF,
   VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF,
@@ -340,7 +341,7 @@ export const BLACKBOX_REMOTE_CODE_DEFAULT_MODEL_REF = "blackbox-remote-code/defa
 
 export function applyBlackboxRemoteCodeProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
   const providers = { ...cfg.models?.providers };
-  const baseUrl = process.env.REMOTE_CODE_API_URL || "http://localhost:3000";
+  const baseUrl = remoteCodeConfig.apiUrl;
   providers["blackbox-remote-code"] = {
     baseUrl,
     api: "openai-completions",

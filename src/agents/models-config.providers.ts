@@ -1,5 +1,6 @@
 import type { ClawdbotConfig } from "../config/config.js";
 import type { ModelDefinitionConfig } from "../config/types.models.js";
+import { remoteCodeConfig } from "../config/blackbox-env.js";
 import {
   DEFAULT_COPILOT_API_BASE_URL,
   resolveCopilotApiToken,
@@ -75,8 +76,7 @@ const OLLAMA_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
-const BLACKBOX_REMOTE_CODE_BASE_URL =
-  process.env.REMOTE_CODE_API_URL || "http://localhost:3000";
+const BLACKBOX_REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl;
 const BLACKBOX_REMOTE_CODE_DEFAULT_MODEL_ID = "default";
 const BLACKBOX_REMOTE_CODE_DEFAULT_CONTEXT_WINDOW = 200000;
 const BLACKBOX_REMOTE_CODE_DEFAULT_MAX_TOKENS = 8192;

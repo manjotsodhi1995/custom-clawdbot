@@ -6,6 +6,7 @@ import type { Api, AssistantMessage, ImageContent, Model } from "@mariozechner/p
 import { streamSimple, completeSimple } from "@mariozechner/pi-ai";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 
+import { clawdbotApiConfig, remoteCodeConfig } from "../../../config/blackbox-env.js";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import {
   listChannelSupportedActions,
@@ -504,8 +505,8 @@ export async function runEmbeddedAttempt(
         log.debug(`blackbox-remote-code provider: messages will be forwarded to remote-code webhook`);
         
         const originalStreamFn = activeSession.agent.streamFn;
-        const REMOTE_CODE_BASE_URL = process.env.REMOTE_CODE_API_URL || "http://localhost:3000";
-        const CLAWDBOT_API_KEY = process.env.CLAWDBOT_API_KEY || "1234567890";
+        const REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl;
+        const CLAWDBOT_API_KEY = clawdbotApiConfig.apiKey;
         const senderE164 = params.senderE164;
         // Also try to extract phone from the prompt (WhatsApp format includes it)
         const promptPhoneMatch = params.prompt?.match(/\[WhatsApp\s+(\+\d+)/);

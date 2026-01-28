@@ -1,5 +1,6 @@
 import { ensureAuthProfileStore, resolveAuthProfileOrder } from "../agents/auth-profiles.js";
 import { resolveEnvApiKey } from "../agents/model-auth.js";
+import { clawdbotApiConfig } from "../config/blackbox-env.js";
 import {
   formatApiKeyPreview,
   normalizeApiKeyInput,
@@ -585,7 +586,7 @@ export async function applyAuthChoiceApiProviders(
 
   if (authChoice === "blackbox-remote-code") {
     // Prompt for CLAWDBOT_API_KEY (used by remote-code tool for HTTP requests)
-    const existingKey = process.env.CLAWDBOT_API_KEY?.trim() || "1234567890";
+    const existingKey = clawdbotApiConfig.apiKey;
     if (existingKey) {
       const useExisting = await params.prompter.confirm({
         message: `Use existing CLAWDBOT_API_KEY (${formatApiKeyPreview(existingKey)})?`,

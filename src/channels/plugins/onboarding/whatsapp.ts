@@ -169,6 +169,7 @@ async function promptWhatsAppAllowFrom(
   next = setWhatsAppDmPolicy(next, policy);
   if (policy === "open") {
     next = setWhatsAppAllowFrom(next, ["*"]);
+    return next;
   }
   if (policy === "disabled") return next;
 

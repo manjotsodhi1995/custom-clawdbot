@@ -2,6 +2,7 @@ import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import { resolveClawdbotAgentDir } from "../agents/agent-paths.js";
 import { upsertAuthProfile } from "../agents/auth-profiles.js";
 import { upsertSharedEnvVar } from "../infra/env-file.js";
+import { clawdbotApiConfig } from "../config/blackbox-env.js";
 
 const resolveAuthAgentDir = (agentDir?: string) => agentDir ?? resolveClawdbotAgentDir();
 
@@ -172,7 +173,7 @@ export async function setClawdbotApiKey(key: string, agentDir?: string) {
     key: "CLAWDBOT_API_KEY",
     value: key,
   });
-  // Also set in process.env for immediate use
-  process.env.CLAWDBOT_API_KEY = key;
+  // Also set in process.env for immediate use via config
+  clawdbotApiConfig.setApiKey(key);
   return result;
 }

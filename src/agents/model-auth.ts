@@ -3,6 +3,7 @@ import path from "node:path";
 import { type Api, getEnvApiKey, type Model } from "@mariozechner/pi-ai";
 import type { ClawdbotConfig } from "../config/config.js";
 import type { ModelProviderAuthMode, ModelProviderConfig } from "../config/types.js";
+import { clawdbotApiConfig } from "../config/blackbox-env.js";
 import { getShellEnvAppliedKeys } from "../infra/shell-env.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import {
@@ -217,7 +218,7 @@ export async function resolveApiKeyForProvider(params: {
 
   // Special handling for blackbox-remote-code: uses CLAWDBOT_API_KEY env var
   if (provider === "blackbox-remote-code") {
-    const clawdbotApiKey = process.env.CLAWDBOT_API_KEY?.trim() || "1234567890";
+    const clawdbotApiKey = clawdbotApiConfig.apiKey;
     if (clawdbotApiKey) {
       return {
         apiKey: clawdbotApiKey,
