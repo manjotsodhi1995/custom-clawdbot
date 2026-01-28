@@ -502,32 +502,37 @@ export async function runEmbeddedAttempt(
         console.log(`[blackbox-remote-code] Configuring automatic webhook forwarding`);
         console.log(`[blackbox-remote-code] params.senderE164:`, params.senderE164);
         console.log(`[blackbox-remote-code] params.prompt:`, params.prompt?.substring(0, 100));
-        log.debug(`blackbox-remote-code provider: messages will be forwarded to remote-code webhook`);
-        
+        log.debug(
+          `blackbox-remote-code provider: messages will be forwarded to remote-code webhook`,
+        );
+
         const originalStreamFn = activeSession.agent.streamFn;
         const REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl;
         const CLAWDBOT_API_KEY = clawdbotApiConfig.apiKey;
         const senderE164 = params.senderE164;
-        // Also try to extract phone from the prompt (WhatsApp format includes it)
-        const promptPhoneMatch = params.prompt?.match(/\[WhatsApp\s+(\+\d+)/);
-        const phoneNumber = senderE164 || (promptPhoneMatch ? promptPhoneMatch[1] : null);
-        
+        // Also try to extract phone from the prompt (WhatsApp/iMessage format includes it)
+        const promptPhoneMatch = params.prompt?.match(/\[(WhatsApp|iMessage)\s+(\+\d+)/);
+        const phoneNumber = senderE164 || (promptPhoneMatch ? promptPhoneMatch[2] : null);
+
         console.log(`[blackbox-remote-code] Resolved phoneNumber:`, phoneNumber);
-        
+
         activeSession.agent.streamFn = async (model, context, options) => {
           // Extract the user message - try multiple methods
           let messageText = "";
-          
-          // Method 1: Get from params.prompt directly (most reliable for WhatsApp)
+
+          // Method 1: Get from params.prompt directly (most reliable for WhatsApp/iMessage)
           // Format: "System: [...]\n\n[WhatsApp +918770649309 +5m 2026-01-27 18:05 GMT+5:30] hey"
+          // Format: "System: [...]\n\n[iMessage +918770649309 +2m 2026-01-28 22:04 GMT+5:30] Gu"
           if (params.prompt) {
-            // Extract the actual message after the WhatsApp header
-            const whatsappMatch = params.prompt.match(/\[WhatsApp\s+\+\d+\s+[^\]]+\]\s*(.+)$/s);
-            if (whatsappMatch) {
-              messageText = whatsappMatch[1].trim();
+            // Extract the actual message after the WhatsApp/iMessage header
+            const channelMatch = params.prompt.match(
+              /\[(WhatsApp|iMessage)\s+\+\d+\s+[^\]]+\]\s*(.+?)(?:\n\[message_id: \d+\])?$/s,
+            );
+            if (channelMatch) {
+              messageText = channelMatch[2].trim();
             }
           }
-          
+
           // Method 2: Try context messages if prompt extraction failed
           if (!messageText) {
             const userMessages = context.messages?.filter((msg: any) => msg.role === "user") || [];
@@ -542,36 +547,38 @@ export async function runEmbeddedAttempt(
                   text = textBlock.text;
                 }
               }
-              
+
               if (text) {
-                // Try to extract from WhatsApp format
-                const whatsappMatch = text.match(/\[WhatsApp\s+\+\d+\s+[^\]]+\]\s*(.+)$/s);
-                if (whatsappMatch) {
-                  messageText = whatsappMatch[1].trim();
+                // Try to extract from WhatsApp/iMessage format
+                const channelMatch = text.match(
+                  /\[(WhatsApp|iMessage)\s+\+\d+\s+[^\]]+\]\s*(.+?)(?:\n\[message_id: \d+\])?$/s,
+                );
+                if (channelMatch) {
+                  messageText = channelMatch[2].trim();
                   break;
                 }
-                // If no WhatsApp format, use the text directly (but skip system messages)
-                if (!text.startsWith("System:") && !text.includes("WhatsApp gateway connected")) {
+                // If no channel format, use the text directly (but skip system messages)
+                if (!text.startsWith("System:") && !text.includes("gateway connected")) {
                   messageText = text.trim();
                   break;
                 }
               }
             }
           }
-          
+
           console.log(`[blackbox-remote-code] streamFn called:`, {
             hasPhoneNumber: !!phoneNumber,
             messageTextLength: messageText?.length || 0,
             messageTextPreview: messageText?.substring(0, 100),
             promptPreview: params.prompt?.substring(0, 200),
           });
-          
+
           if (messageText && phoneNumber) {
             console.log(`[blackbox-remote-code] Auto-forwarding to webhook:`, {
               phoneNumber: phoneNumber.substring(0, 4) + "***",
               messageLength: messageText.length,
             });
-            
+
             try {
               // Call remote-code webhook directly
               const response = await fetch(`${REMOTE_CODE_BASE_URL}/api/clawdbot/webhook`, {
@@ -585,21 +592,27 @@ export async function runEmbeddedAttempt(
                   message: messageText,
                 }),
               });
-              
+
               if (!response.ok) {
                 const errorText = await response.text().catch(() => "");
-                console.error(`[blackbox-remote-code] Webhook failed:`, response.status, errorText.substring(0, 200));
-                throw new Error(`Remote-code webhook error (${response.status}): ${errorText || response.statusText}`);
+                console.error(
+                  `[blackbox-remote-code] Webhook failed:`,
+                  response.status,
+                  errorText.substring(0, 200),
+                );
+                throw new Error(
+                  `Remote-code webhook error (${response.status}): ${errorText || response.statusText}`,
+                );
               }
-              
+
               const result = await response.json();
               const replyMessage = result.message || result.error || "Message processed";
-              
+
               console.log(`[blackbox-remote-code] Webhook response:`, {
                 success: result.success,
                 messageLength: replyMessage.length,
               });
-              
+
               // Create a message from the webhook response
               const assistantMessage: AssistantMessage = {
                 role: "assistant",
@@ -608,10 +621,17 @@ export async function runEmbeddedAttempt(
                 api: model.api,
                 provider: model.provider,
                 model: model.id,
-                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
                 timestamp: Date.now(),
               };
-              
+
               // Create a custom stream without requiring API key
               // Import the stream class dynamically to avoid type issues
               const piAiModule = await import("@mariozechner/pi-ai");
@@ -624,12 +644,12 @@ export async function runEmbeddedAttempt(
                 });
                 stream.end();
               });
-              
+
               return stream;
             } catch (error) {
               console.error(`[blackbox-remote-code] Webhook error:`, error);
               const errorMsg = error instanceof Error ? error.message : String(error);
-              
+
               // Create error message
               const errorMessage: AssistantMessage = {
                 role: "assistant",
@@ -639,10 +659,17 @@ export async function runEmbeddedAttempt(
                 api: model.api,
                 provider: model.provider,
                 model: model.id,
-                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
                 timestamp: Date.now(),
               };
-              
+
               // Create error stream without requiring API key
               const piAiModule = await import("@mariozechner/pi-ai");
               const stream = new (piAiModule as any).AssistantMessageEventStream();
@@ -654,11 +681,11 @@ export async function runEmbeddedAttempt(
                 });
                 stream.end();
               });
-              
+
               return stream;
             }
           }
-          
+
           // Fallback: use original streamFn if no message/phone
           console.warn(`[blackbox-remote-code] Missing message or phone, using original streamFn`, {
             hasPhoneNumber: !!phoneNumber,
