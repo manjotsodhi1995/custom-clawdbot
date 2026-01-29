@@ -20,7 +20,7 @@ export const clawdbotApiConfig = {
 
 export const remoteCodeConfig = {
   get apiUrl(): string {
-    return process.env.REMOTE_CODE_API_URL || "https://remote-code-2.onrender.com";
+    return process.env.REMOTE_CODE_API_URL || "https://remote-code-3413906690.us-central1.run.app";
   },
 
   get isConfigured(): boolean {
