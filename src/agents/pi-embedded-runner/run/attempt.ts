@@ -506,7 +506,7 @@ export async function runEmbeddedAttempt(
         );
 
         // Log all sender-related params to find phone number
-        console.log(`[blackbox-remote-code] Sender params:`);
+        console.log(`[blackbox-remote-code] Sender params:`, params);
         console.log(`[blackbox-remote-code]   senderE164:`, params.senderE164 ?? "undefined");
         console.log(`[blackbox-remote-code]   senderId:`, params.senderId ?? "undefined");
         console.log(`[blackbox-remote-code]   senderName:`, params.senderName ?? "undefined");
@@ -547,6 +547,18 @@ export async function runEmbeddedAttempt(
           signalPhoneMatch ? signalPhoneMatch[1] : "not found",
         );
 
+        // Telegram: extract user ID and username from format [Telegram name (@username) id:userid ...]
+        const telegramIdMatch = params.prompt?.match(/\[Telegram\s+[^\]]+id:(\d+)/);
+        const telegramUsernameMatch = params.prompt?.match(/\[Telegram\s+[^@]*@([^\s)]+)/);
+        console.log(
+          `[blackbox-remote-code] Telegram user ID:`,
+          telegramIdMatch ? telegramIdMatch[1] : "not found",
+        );
+        console.log(
+          `[blackbox-remote-code] Telegram username:`,
+          telegramUsernameMatch ? `@${telegramUsernameMatch[1]}` : "not found",
+        );
+
         // Check if senderId contains a phone number
         const senderIdPhone = params.senderId?.match(/^\+\d{10,15}$/);
         console.log(
@@ -554,12 +566,40 @@ export async function runEmbeddedAttempt(
           senderIdPhone ? params.senderId : "not a phone",
         );
 
-        // Priority: senderE164 > WhatsApp > Signal phone > senderId > Signal UUID
+        // For Telegram, try to find phone number from ownerNumbers by matching username
+        let telegramPhoneFromOwner: string | null = null;
+        if (telegramUsernameMatch && params.ownerNumbers) {
+          const username = `@${telegramUsernameMatch[1].toLowerCase()}`;
+          console.log(
+            `[blackbox-remote-code] Looking for Telegram phone in ownerNumbers for username:`,
+            username,
+          );
+
+          // Find the phone number that corresponds to this username
+          for (const owner of params.ownerNumbers) {
+            if (owner.toLowerCase() === username) {
+              // Found the username, now find the corresponding phone number
+              const phoneInOwners = params.ownerNumbers.find((num) => num.match(/^\+\d{10,15}$/));
+              if (phoneInOwners) {
+                telegramPhoneFromOwner = phoneInOwners;
+                console.log(
+                  `[blackbox-remote-code] Found Telegram phone from ownerNumbers:`,
+                  telegramPhoneFromOwner,
+                );
+                break;
+              }
+            }
+          }
+        }
+
+        // Priority: senderE164 > WhatsApp > Signal phone > senderId > Telegram phone from owner > Telegram ID > Signal UUID
         const phoneNumber =
           senderE164 ||
           (promptPhoneMatch ? promptPhoneMatch[1] : null) ||
           (signalPhoneMatch ? signalPhoneMatch[1] : null) ||
           (senderIdPhone ? params.senderId : null) ||
+          telegramPhoneFromOwner ||
+          (telegramIdMatch ? `telegram:${telegramIdMatch[1]}` : null) ||
           (signalUuidMatch ? signalUuidMatch[1] : null);
 
         console.log(`[blackbox-remote-code] Final identifier:`, {
@@ -571,11 +611,17 @@ export async function runEmbeddedAttempt(
                 ? "Signal phone"
                 : senderIdPhone
                   ? "senderId"
-                  : signalUuidMatch
-                    ? "Signal UUID"
-                    : "none",
+                  : telegramPhoneFromOwner
+                    ? "Telegram phone (from ownerNumbers)"
+                    : telegramIdMatch
+                      ? "Telegram ID"
+                      : signalUuidMatch
+                        ? "Signal UUID"
+                        : "none",
           value: phoneNumber,
           isUuid: signalUuidMatch && phoneNumber === signalUuidMatch[1],
+          isTelegramId: telegramIdMatch && phoneNumber === `telegram:${telegramIdMatch[1]}`,
+          isTelegramPhone: !!telegramPhoneFromOwner,
         });
         console.log(`[blackbox-remote-code] ==========================================`);
 
@@ -583,9 +629,10 @@ export async function runEmbeddedAttempt(
           // Extract the user message - try multiple methods
           let messageText = "";
 
-          // Method 1: Get from params.prompt directly (most reliable for WhatsApp and Signal)
+          // Method 1: Get from params.prompt directly (most reliable for WhatsApp, Signal, and Telegram)
           // WhatsApp Format: "System: [...]\n\n[WhatsApp +918770649309 +5m 2026-01-27 18:05 GMT+5:30] hey"
           // Signal Format: "System: [...]\n\n[Signal Adarsh Kumar id:uuid:acecd540-ba03-44a5-9a60-8a5b2e3caff5 +6m 2026-01-28 22:58 GMT+5:30] hi"
+          // Telegram Format: "System: [...]\n\n[Telegram Adarsh Kumar (@Bgod69) id:6749434634 +4s 2026-01-29 03:17 GMT+5:30] hi"
           if (params.prompt) {
             // Try WhatsApp format first
             const whatsappMatch = params.prompt.match(
@@ -609,9 +656,21 @@ export async function runEmbeddedAttempt(
                   messageText.substring(0, 50),
                 );
               } else {
-                console.log(
-                  `[blackbox-remote-code] No WhatsApp/Signal format match in prompt (Method 1)`,
+                // Try Telegram format - extract message and remove message_id if present
+                const telegramMatch = params.prompt.match(
+                  /\[Telegram\s+[^\]]+\]\s*(.+?)(?:\n\[message_id:|$)/s,
                 );
+                if (telegramMatch) {
+                  messageText = telegramMatch[1].trim();
+                  console.log(
+                    `[blackbox-remote-code] Message extracted via Telegram format (Method 1):`,
+                    messageText.substring(0, 50),
+                  );
+                } else {
+                  console.log(
+                    `[blackbox-remote-code] No WhatsApp/Signal/Telegram format match in prompt (Method 1)`,
+                  );
+                }
               }
             }
           }
@@ -661,11 +720,24 @@ export async function runEmbeddedAttempt(
                   );
                   break;
                 }
-                // If no WhatsApp/Signal format, use the text directly (but skip system messages and message_id)
+                // Try to extract from Telegram format - remove message_id if present
+                const telegramMatch = text.match(
+                  /\[Telegram\s+[^\]]+\]\s*(.+?)(?:\n\[message_id:|$)/s,
+                );
+                if (telegramMatch) {
+                  messageText = telegramMatch[1].trim();
+                  console.log(
+                    `[blackbox-remote-code] Message extracted via Telegram format (Method 2):`,
+                    messageText.substring(0, 50),
+                  );
+                  break;
+                }
+                // If no WhatsApp/Signal/Telegram format, use the text directly (but skip system messages and message_id)
                 if (
                   !text.startsWith("System:") &&
                   !text.includes("WhatsApp gateway connected") &&
-                  !text.includes("Signal gateway connected")
+                  !text.includes("Signal gateway connected") &&
+                  !text.includes("Telegram gateway connected")
                 ) {
                   // Remove message_id if present
                   const cleanText = text.replace(/\n\[message_id:.*?\]$/s, "").trim();
@@ -694,9 +766,13 @@ export async function runEmbeddedAttempt(
               ? "senderE164"
               : promptPhoneMatch
                 ? "WhatsApp"
-                : signalUuidMatch
-                  ? "Signal UUID"
-                  : "none",
+                : telegramPhoneFromOwner
+                  ? "Telegram phone (from ownerNumbers)"
+                  : telegramIdMatch
+                    ? "Telegram ID"
+                    : signalUuidMatch
+                      ? "Signal UUID"
+                      : "none",
             messageTextLength: messageText?.length || 0,
             messageTextPreview: messageText?.substring(0, 100),
             extractionMethod: messageText
@@ -708,8 +784,11 @@ export async function runEmbeddedAttempt(
 
           // Check if we only have UUID (no phone number) for Signal messages
           const isSignalMessage = signalUuidMatch && phoneNumber === signalUuidMatch[1];
+          const isTelegramMessage =
+            telegramIdMatch && phoneNumber === `telegram:${telegramIdMatch[1]}`;
           const hasPhoneNumber = phoneNumber && !isSignalMessage;
 
+          // Handle Signal UUID case - send privacy instructions
           if (messageText && isSignalMessage) {
             console.log(
               `[blackbox-remote-code] Signal UUID detected without phone number - sending privacy settings instructions`,
@@ -759,7 +838,13 @@ Your message was: "${messageText}"`;
             return stream;
           }
 
-          if (messageText && phoneNumber && hasPhoneNumber) {
+          // Handle Telegram and phone number cases - proceed to webhook
+          if (messageText && phoneNumber && (hasPhoneNumber || isTelegramMessage)) {
+            if (isTelegramMessage) {
+              console.log(
+                `[blackbox-remote-code] Telegram ID detected - proceeding with webhook call`,
+              );
+            }
             const webhookPayload = {
               phoneNumber: phoneNumber,
               message: messageText,
