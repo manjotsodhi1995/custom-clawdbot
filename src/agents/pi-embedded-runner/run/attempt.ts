@@ -559,6 +559,22 @@ export async function runEmbeddedAttempt(
           telegramUsernameMatch ? `@${telegramUsernameMatch[1]}` : "not found",
         );
 
+        // Slack: extract channel and message from format [Slack name +time timestamp] message [slack message id: id channel: channelId]
+        const slackMatch = params.prompt?.match(
+          /\[Slack\s+[^\]]+\]\s*(.+?)(?:\n\[slack message id:|$)/s,
+        );
+        const slackChannelMatch = params.prompt?.match(
+          /\[slack message id:\s*[^\s]+\s+channel:\s*([^\]]+)\]/,
+        );
+        console.log(
+          `[blackbox-remote-code] Slack message:`,
+          slackMatch ? slackMatch[1].substring(0, 50) : "not found",
+        );
+        console.log(
+          `[blackbox-remote-code] Slack channel:`,
+          slackChannelMatch ? slackChannelMatch[1] : "not found",
+        );
+
         // Check if senderId contains a phone number
         const senderIdPhone = params.senderId?.match(/^\+\d{10,15}$/);
         console.log(
@@ -592,12 +608,60 @@ export async function runEmbeddedAttempt(
           }
         }
 
-        // Priority: senderE164 > WhatsApp > Signal phone > senderId > Telegram phone from owner > Telegram ID > Signal UUID
+        // Slack: try to get user email or phone from Slack API
+        let slackUserEmail: string | null = null;
+        let slackUserPhone: string | null = null;
+        if (slackChannelMatch && params.messageChannel === "slack") {
+          const channelId = slackChannelMatch[1].trim();
+          const userId = params.senderId; // This should be the Slack user ID
+
+          console.log(`[blackbox-remote-code] Attempting to fetch Slack user info:`, {
+            channelId,
+            userId,
+            hasSenderId: !!userId,
+          });
+
+          // Try to get user info from Slack API if we have the user ID
+          if (userId) {
+            try {
+              // Import Slack client utilities
+              const { createSlackWebClient } = await import("../../../slack/client.js");
+
+              // Get Slack token from config
+              const slackConfig = params.config?.channels?.slack;
+              const slackToken = slackConfig?.botToken || slackConfig?.userToken;
+
+              if (slackToken) {
+                const client = createSlackWebClient(slackToken);
+                const userInfo = await client.users.info({ user: userId });
+
+                if (userInfo.user?.profile) {
+                  slackUserEmail = userInfo.user.profile.email?.trim()?.toLowerCase() || null;
+                  slackUserPhone = userInfo.user.profile.phone?.trim() || null;
+
+                  console.log(`[blackbox-remote-code] Slack user info retrieved:`, {
+                    email: slackUserEmail ? slackUserEmail.substring(0, 5) + "***" : "not found",
+                    phone: slackUserPhone ? slackUserPhone.substring(0, 4) + "***" : "not found",
+                  });
+                }
+              } else {
+                console.log(`[blackbox-remote-code] No Slack token available for user lookup`);
+              }
+            } catch (err) {
+              console.log(`[blackbox-remote-code] Failed to fetch Slack user info:`, err);
+            }
+          }
+        }
+
+        // Priority: senderE164 > WhatsApp > Signal phone > senderId > Slack email > Slack phone > Slack channel > Telegram phone from owner > Telegram ID > Signal UUID
         const phoneNumber =
           senderE164 ||
           (promptPhoneMatch ? promptPhoneMatch[1] : null) ||
           (signalPhoneMatch ? signalPhoneMatch[1] : null) ||
           (senderIdPhone ? params.senderId : null) ||
+          slackUserEmail ||
+          slackUserPhone ||
+          (slackChannelMatch ? `slack:${slackChannelMatch[1]}` : null) ||
           telegramPhoneFromOwner ||
           (telegramIdMatch ? `telegram:${telegramIdMatch[1]}` : null) ||
           (signalUuidMatch ? signalUuidMatch[1] : null);
@@ -611,17 +675,26 @@ export async function runEmbeddedAttempt(
                 ? "Signal phone"
                 : senderIdPhone
                   ? "senderId"
-                  : telegramPhoneFromOwner
-                    ? "Telegram phone (from ownerNumbers)"
-                    : telegramIdMatch
-                      ? "Telegram ID"
-                      : signalUuidMatch
-                        ? "Signal UUID"
-                        : "none",
+                  : slackUserEmail
+                    ? "Slack email"
+                    : slackUserPhone
+                      ? "Slack phone"
+                      : slackChannelMatch
+                        ? "Slack channel"
+                        : telegramPhoneFromOwner
+                          ? "Telegram phone (from ownerNumbers)"
+                          : telegramIdMatch
+                            ? "Telegram ID"
+                            : signalUuidMatch
+                              ? "Signal UUID"
+                              : "none",
           value: phoneNumber,
           isUuid: signalUuidMatch && phoneNumber === signalUuidMatch[1],
           isTelegramId: telegramIdMatch && phoneNumber === `telegram:${telegramIdMatch[1]}`,
           isTelegramPhone: !!telegramPhoneFromOwner,
+          isSlackEmail: !!slackUserEmail && phoneNumber === slackUserEmail,
+          isSlackPhone: !!slackUserPhone && phoneNumber === slackUserPhone,
+          isSlackChannel: slackChannelMatch && phoneNumber === `slack:${slackChannelMatch[1]}`,
         });
         console.log(`[blackbox-remote-code] ==========================================`);
 
@@ -629,10 +702,11 @@ export async function runEmbeddedAttempt(
           // Extract the user message - try multiple methods
           let messageText = "";
 
-          // Method 1: Get from params.prompt directly (most reliable for WhatsApp, Signal, and Telegram)
+          // Method 1: Get from params.prompt directly (most reliable for WhatsApp, Signal, Telegram, and Slack)
           // WhatsApp Format: "System: [...]\n\n[WhatsApp +918770649309 +5m 2026-01-27 18:05 GMT+5:30] hey"
           // Signal Format: "System: [...]\n\n[Signal Adarsh Kumar id:uuid:acecd540-ba03-44a5-9a60-8a5b2e3caff5 +6m 2026-01-28 22:58 GMT+5:30] hi"
           // Telegram Format: "System: [...]\n\n[Telegram Adarsh Kumar (@Bgod69) id:6749434634 +4s 2026-01-29 03:17 GMT+5:30] hi"
+          // Slack Format: "System: [...]\n\n[Slack Adarsh Kumar +8m 2026-01-29 07:24 GMT+5:30] Hi [slack message id: 1769651682.410289 channel: D0ACF4NUV96]"
           if (params.prompt) {
             // Try WhatsApp format first
             const whatsappMatch = params.prompt.match(
@@ -667,9 +741,21 @@ export async function runEmbeddedAttempt(
                     messageText.substring(0, 50),
                   );
                 } else {
-                  console.log(
-                    `[blackbox-remote-code] No WhatsApp/Signal/Telegram format match in prompt (Method 1)`,
+                  // Try Slack format - extract message and remove slack message id if present
+                  const slackMatch = params.prompt.match(
+                    /\[Slack\s+[^\]]+\]\s*(.+?)(?:\n\[slack message id:|$)/s,
                   );
+                  if (slackMatch) {
+                    messageText = slackMatch[1].trim();
+                    console.log(
+                      `[blackbox-remote-code] Message extracted via Slack format (Method 1):`,
+                      messageText.substring(0, 50),
+                    );
+                  } else {
+                    console.log(
+                      `[blackbox-remote-code] No WhatsApp/Signal/Telegram/Slack format match in prompt (Method 1)`,
+                    );
+                  }
                 }
               }
             }
@@ -732,12 +818,26 @@ export async function runEmbeddedAttempt(
                   );
                   break;
                 }
-                // If no WhatsApp/Signal/Telegram format, use the text directly (but skip system messages and message_id)
+                // Try to extract from Slack format - remove slack message id if present
+                const slackMatch = text.match(
+                  /\[Slack\s+[^\]]+\]\s*(.+?)(?:\n\[slack message id:|$)/s,
+                );
+                if (slackMatch) {
+                  messageText = slackMatch[1].trim();
+                  console.log(
+                    `[blackbox-remote-code] Message extracted via Slack format (Method 2):`,
+                    messageText.substring(0, 50),
+                  );
+                  break;
+                }
+                // If no WhatsApp/Signal/Telegram/Slack format, use the text directly (but skip system messages and message_id)
                 if (
                   !text.startsWith("System:") &&
                   !text.includes("WhatsApp gateway connected") &&
                   !text.includes("Signal gateway connected") &&
-                  !text.includes("Telegram gateway connected")
+                  !text.includes("Telegram gateway connected") &&
+                  !text.includes("Slack gateway connected") &&
+                  !text.includes("Slack DM from")
                 ) {
                   // Remove message_id if present
                   const cleanText = text.replace(/\n\[message_id:.*?\]$/s, "").trim();
@@ -786,7 +886,12 @@ export async function runEmbeddedAttempt(
           const isSignalMessage = signalUuidMatch && phoneNumber === signalUuidMatch[1];
           const isTelegramMessage =
             telegramIdMatch && phoneNumber === `telegram:${telegramIdMatch[1]}`;
+          const isSlackMessage =
+            slackChannelMatch && phoneNumber === `slack:${slackChannelMatch[1]}`;
           const hasPhoneNumber = phoneNumber && !isSignalMessage;
+          const hasEmailOrIdentifier =
+            phoneNumber &&
+            (slackUserEmail || slackUserPhone || isSlackMessage || isTelegramMessage);
 
           // Handle Signal UUID case - send privacy instructions
           if (messageText && isSignalMessage) {
@@ -838,11 +943,23 @@ Your message was: "${messageText}"`;
             return stream;
           }
 
-          // Handle Telegram and phone number cases - proceed to webhook
-          if (messageText && phoneNumber && (hasPhoneNumber || isTelegramMessage)) {
+          // Handle Telegram, Slack, and phone number cases - proceed to webhook
+          if (messageText && phoneNumber && (hasPhoneNumber || hasEmailOrIdentifier)) {
             if (isTelegramMessage) {
               console.log(
                 `[blackbox-remote-code] Telegram ID detected - proceeding with webhook call`,
+              );
+            } else if (isSlackMessage) {
+              console.log(
+                `[blackbox-remote-code] Slack channel detected - proceeding with webhook call`,
+              );
+            } else if (slackUserEmail) {
+              console.log(
+                `[blackbox-remote-code] Slack email detected - proceeding with webhook call`,
+              );
+            } else if (slackUserPhone) {
+              console.log(
+                `[blackbox-remote-code] Slack phone detected - proceeding with webhook call`,
               );
             }
             const webhookPayload = {
