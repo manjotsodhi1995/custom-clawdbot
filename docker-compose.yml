@@ -1,26 +1,50 @@
 services:
   openclaw-gateway:
-    image: ${OPENCLAW_IMAGE:-openclaw-custom:latest}   # ← can change name
-    build: .                                            # ← builds YOUR repo
+    image: ${OPENCLAW_IMAGE:-openclaw-custom:latest}
+    build: .
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
     environment:
-      HOME: /home/ubuntu
+      # Core settings (these override .env if set here)
       NODE_ENV: production
+      HOME: /home/node
+      TERM: xterm-256color
+
+      # Gateway settings – these are passed via command line
+      # You can remove them from here if they are only used in command
       OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND}
       OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
-      # ... other vars
+
+      # Optional: if your fork uses these
+      GOG_KEYRING_PASSWORD: ${GOG_KEYRING_PASSWORD}
+      XDG_CONFIG_HOME: /home/node/.openclaw
+
     volumes:
-      - ${OPENCLAW_CONFIG_DIR}:/home/ubuntu/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR}:/home/ubuntu/.openclaw/workspace
+      - ${OPENCLAW_CONFIG_DIR:-/home/ubuntu/.openclaw}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-/home/ubuntu/.openclaw/workspace}:/home/node/.openclaw/workspace
+
     ports:
-      - "127.0.0.1:${OPENCLAW_GATEWAY_PORT}:18789"
+      - "127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}:18789"   # localhost only – very important for security
+
+    # This is the correct way to write the command (array format, NO quotes around items)
     command:
-      - "node"
-      - "dist/index.js"
-      - "gateway"
-      - "--bind"
-      - "${OPENCLAW_GATEWAY_BIND}"
-      - "--port"
-      - "${OPENCLAW_GATEWAY_PORT}"
+      - node
+      - dist/index.js
+      - gateway
+      - --bind
+      - ${OPENCLAW_GATEWAY_BIND:-lan}
+      - --port
+      - ${OPENCLAW_GATEWAY_PORT:-18789}
+
+    # Optional – highly recommended for production
+    deploy:
+      resources:
+        limits:
+          memory: 1G          # adjust based on your instance
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
