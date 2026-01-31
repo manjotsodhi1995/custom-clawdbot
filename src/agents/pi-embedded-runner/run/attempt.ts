@@ -547,17 +547,20 @@ export async function runEmbeddedAttempt(
           signalPhoneMatch ? signalPhoneMatch[1] : "not found",
         );
 
-        // Telegram: extract user ID and username from format [Telegram name (@username) id:userid ...]
-        const telegramIdMatch = params.prompt?.match(/\[Telegram\s+[^\]]+id:(\d+)/);
-        const telegramUsernameMatch = params.prompt?.match(/\[Telegram\s+[^@]*@([^\s)]+)/);
-        console.log(
-          `[blackbox-remote-code] Telegram user ID:`,
-          telegramIdMatch ? telegramIdMatch[1] : "not found",
+        // Telegram: extract name, username, and user ID from format [Telegram name (@username) id:userid ...]
+        const telegramMatch = params.prompt?.match(
+          /\[Telegram\s+([^(@]+)\s*(?:\(@([^\)]+)\))?\s*id:(\d+)/,
         );
+        const telegramName = telegramMatch ? telegramMatch[1].trim() : null;
+        const telegramUsername = telegramMatch ? telegramMatch[2] : null;
+        const telegramUserId = telegramMatch ? telegramMatch[3] : null;
+
+        console.log(`[blackbox-remote-code] Telegram name:`, telegramName || "not found");
         console.log(
           `[blackbox-remote-code] Telegram username:`,
-          telegramUsernameMatch ? `@${telegramUsernameMatch[1]}` : "not found",
+          telegramUsername ? `@${telegramUsername}` : "not found",
         );
+        console.log(`[blackbox-remote-code] Telegram user ID:`, telegramUserId || "not found");
 
         // Slack: extract channel and message from format [Slack name +time timestamp] message [slack message id: id channel: channelId]
         const slackMatch = params.prompt?.match(
@@ -581,32 +584,6 @@ export async function runEmbeddedAttempt(
           `[blackbox-remote-code] SenderId phone:`,
           senderIdPhone ? params.senderId : "not a phone",
         );
-
-        // For Telegram, try to find phone number from ownerNumbers by matching username
-        let telegramPhoneFromOwner: string | null = null;
-        if (telegramUsernameMatch && params.ownerNumbers) {
-          const username = `@${telegramUsernameMatch[1].toLowerCase()}`;
-          console.log(
-            `[blackbox-remote-code] Looking for Telegram phone in ownerNumbers for username:`,
-            username,
-          );
-
-          // Find the phone number that corresponds to this username
-          for (const owner of params.ownerNumbers) {
-            if (owner.toLowerCase() === username) {
-              // Found the username, now find the corresponding phone number
-              const phoneInOwners = params.ownerNumbers.find((num) => num.match(/^\+\d{10,15}$/));
-              if (phoneInOwners) {
-                telegramPhoneFromOwner = phoneInOwners;
-                console.log(
-                  `[blackbox-remote-code] Found Telegram phone from ownerNumbers:`,
-                  telegramPhoneFromOwner,
-                );
-                break;
-              }
-            }
-          }
-        }
 
         // Slack: try to get user email or phone from Slack API
         let slackUserEmail: string | null = null;
@@ -653,7 +630,7 @@ export async function runEmbeddedAttempt(
           }
         }
 
-        // Priority: senderE164 > WhatsApp > Signal phone > senderId > Slack email > Slack phone > Slack channel > Telegram phone from owner > Telegram ID > Signal UUID
+        // Priority: senderE164 > WhatsApp > Signal phone > senderId > Slack email > Slack phone > Slack channel > Telegram ID > Signal UUID
         const phoneNumber =
           senderE164 ||
           (promptPhoneMatch ? promptPhoneMatch[1] : null) ||
@@ -662,8 +639,7 @@ export async function runEmbeddedAttempt(
           slackUserEmail ||
           slackUserPhone ||
           (slackChannelMatch ? `slack:${slackChannelMatch[1]}` : null) ||
-          telegramPhoneFromOwner ||
-          (telegramIdMatch ? `telegram:${telegramIdMatch[1]}` : null) ||
+          (telegramUserId ? `telegram:${telegramUserId}` : null) ||
           (signalUuidMatch ? signalUuidMatch[1] : null);
 
         console.log(`[blackbox-remote-code] Final identifier:`, {
@@ -681,20 +657,20 @@ export async function runEmbeddedAttempt(
                       ? "Slack phone"
                       : slackChannelMatch
                         ? "Slack channel"
-                        : telegramPhoneFromOwner
-                          ? "Telegram phone (from ownerNumbers)"
-                          : telegramIdMatch
-                            ? "Telegram ID"
-                            : signalUuidMatch
-                              ? "Signal UUID"
-                              : "none",
+                        : telegramUserId
+                          ? "Telegram ID"
+                          : signalUuidMatch
+                            ? "Signal UUID"
+                            : "none",
           value: phoneNumber,
           isUuid: signalUuidMatch && phoneNumber === signalUuidMatch[1],
-          isTelegramId: telegramIdMatch && phoneNumber === `telegram:${telegramIdMatch[1]}`,
-          isTelegramPhone: !!telegramPhoneFromOwner,
+          isTelegramId: telegramUserId && phoneNumber === `telegram:${telegramUserId}`,
           isSlackEmail: !!slackUserEmail && phoneNumber === slackUserEmail,
           isSlackPhone: !!slackUserPhone && phoneNumber === slackUserPhone,
           isSlackChannel: slackChannelMatch && phoneNumber === `slack:${slackChannelMatch[1]}`,
+          telegramName: telegramName || undefined,
+          telegramUsername: telegramUsername || undefined,
+          telegramUserId: telegramUserId || undefined,
         });
         console.log(`[blackbox-remote-code] ==========================================`);
 
@@ -866,13 +842,11 @@ export async function runEmbeddedAttempt(
               ? "senderE164"
               : promptPhoneMatch
                 ? "WhatsApp"
-                : telegramPhoneFromOwner
-                  ? "Telegram phone (from ownerNumbers)"
-                  : telegramIdMatch
-                    ? "Telegram ID"
-                    : signalUuidMatch
-                      ? "Signal UUID"
-                      : "none",
+                : telegramUserId
+                  ? "Telegram ID"
+                  : signalUuidMatch
+                    ? "Signal UUID"
+                    : "none",
             messageTextLength: messageText?.length || 0,
             messageTextPreview: messageText?.substring(0, 100),
             extractionMethod: messageText
@@ -884,8 +858,7 @@ export async function runEmbeddedAttempt(
 
           // Check if we only have UUID (no phone number) for Signal messages
           const isSignalMessage = signalUuidMatch && phoneNumber === signalUuidMatch[1];
-          const isTelegramMessage =
-            telegramIdMatch && phoneNumber === `telegram:${telegramIdMatch[1]}`;
+          const isTelegramMessage = telegramUserId && phoneNumber === `telegram:${telegramUserId}`;
           const isSlackMessage =
             slackChannelMatch && phoneNumber === `slack:${slackChannelMatch[1]}`;
           const hasPhoneNumber = phoneNumber && !isSignalMessage;
@@ -962,19 +935,26 @@ Your message was: "${messageText}"`;
                 `[blackbox-remote-code] Slack phone detected - proceeding with webhook call`,
               );
             }
-            const webhookPayload = {
+            // For Telegram, include name, username, and user ID in the payload
+            const webhookPayload: any = {
               phoneNumber: phoneNumber,
               message: messageText,
             };
+
+            // Add Telegram-specific fields if this is a Telegram message
+            if (isTelegramMessage && (telegramName || telegramUsername || telegramUserId)) {
+              webhookPayload.telegram = {
+                name: telegramName,
+                username: telegramUsername,
+                userId: telegramUserId,
+              };
+            }
 
             console.log(`[blackbox-remote-code] Auto-forwarding to webhook:`, {
               url: `${REMOTE_CODE_BASE_URL}/api/clawdbot/webhook`,
               phoneNumber: phoneNumber.substring(0, 4) + "***",
               messageLength: messageText.length,
-              payload: {
-                phoneNumber: phoneNumber.substring(0, 8) + "***",
-                message: messageText.substring(0, 100) + (messageText.length > 100 ? "..." : ""),
-              },
+              payload: webhookPayload,
             });
 
             try {

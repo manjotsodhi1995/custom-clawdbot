@@ -1,14 +1,19 @@
-version: '3.8'
-
 services:
-  clawdbot:
-    build: .
-    container_name: clawdbot-gateway
-    ports:
-      - "18789:18789"
-    volumes:
-      - clawdbot-config:/home/clawdbot/.clawdbot
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-openclaw-custom:latest}   # ← can change name
+    build: .                                            # ← builds YOUR repo
     restart: unless-stopped
-
-volumes:
-  clawdbot-config:
+    env_file: .env
+    environment:
+      HOME: /home/ubuntu
+      NODE_ENV: production
+      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND}
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      # ... other vars
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR}:/home/ubuntu/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR}:/home/ubuntu/.openclaw/workspace
+    ports:
+      - "127.0.0.1:${OPENCLAW_GATEWAY_PORT}:18789"
+    command: ["node", "dist/index.js", "gateway", "--bind", "${OPENCLAW_GATEWAY_BIND}", "--port", "${OPENCLAW_GATEWAY_PORT}"]
