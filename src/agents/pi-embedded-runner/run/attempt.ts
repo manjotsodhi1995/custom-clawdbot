@@ -522,7 +522,9 @@ export async function runEmbeddedAttempt(
         );
 
         const originalStreamFn = activeSession.agent.streamFn;
-        const REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl || "http://localhost:3000";
+        const REMOTE_CODE_BASE_URL =
+          remoteCodeConfig.apiUrl ||
+          "https://remote-code-feat-custom-clawdbot-jnqdrwdwga-uc.a.run.app";
         const CLAWDBOT_API_KEY = clawdbotApiConfig.apiKey || "1234567890";
         const senderE164 = params.senderE164;
 

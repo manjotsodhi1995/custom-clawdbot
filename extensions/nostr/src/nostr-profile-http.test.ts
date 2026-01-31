@@ -39,7 +39,7 @@ function createMockRequest(
   const req = new IncomingMessage(socket);
   req.method = method;
   req.url = url;
-  req.headers = { host: "localhost:3000" };
+  req.headers = { host: "https://remote-code-feat-custom-clawdbot-jnqdrwdwga-uc.a.run.app" };
 
   if (body) {
     const bodyStr = JSON.stringify(body);

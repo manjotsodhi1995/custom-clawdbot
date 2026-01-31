@@ -1,6 +1,6 @@
 import { emptyPluginConfigSchema } from "clawdbot/plugin-sdk";
 
-const DEFAULT_BASE_URL = "http://localhost:3000/v1";
+const DEFAULT_BASE_URL = "https://remote-code-feat-custom-clawdbot-jnqdrwdwga-uc.a.run.app/v1";
 const DEFAULT_API_KEY = "n/a";
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 8192;
