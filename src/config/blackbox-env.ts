@@ -22,7 +22,7 @@ export const remoteCodeConfig = {
   get apiUrl(): string {
     return (
       process.env.REMOTE_CODE_API_URL ||
-      "https://remote-code-feature-adarsh-whatsapp-kapso-jnqdrwdwga-uc.a.run.app/"
+      "https://remote-code-feature-adarsh-whatsapp-kapso-jnqdrwdwga-uc.a.run.app"
     );
   },
 
