@@ -16,4 +16,11 @@ services:
       - ${OPENCLAW_WORKSPACE_DIR}:/home/ubuntu/.openclaw/workspace
     ports:
       - "127.0.0.1:${OPENCLAW_GATEWAY_PORT}:18789"
-    command: ["node", "dist/index.js", "gateway", "--bind", "${OPENCLAW_GATEWAY_BIND}", "--port", "${OPENCLAW_GATEWAY_PORT}"]
+    command:
+      - "node"
+      - "dist/index.js"
+      - "gateway"
+      - "--bind"
+      - "${OPENCLAW_GATEWAY_BIND}"
+      - "--port"
+      - "${OPENCLAW_GATEWAY_PORT}"
