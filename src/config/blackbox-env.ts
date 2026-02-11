@@ -20,10 +20,7 @@ export const clawdbotApiConfig = {
 
 export const remoteCodeConfig = {
   get apiUrl(): string {
-    return (
-      process.env.REMOTE_CODE_API_URL ||
-      "https://remote-code-feat-custom-clawdbot-jnqdrwdwga-uc.a.run.app"
-    );
+    return process.env.REMOTE_CODE_API_URL || "https://markita-unenjoyable-lucinda.ngrok-free.dev";
   },
 
   get isConfigured(): boolean {

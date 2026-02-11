@@ -6,15 +6,23 @@ read_when:
 ---
 # Signal (signal-cli)
 
-
 Status: external CLI integration. Gateway talks to `signal-cli` over HTTP JSON-RPC + SSE.
 
+> **New to signal-cli?** See the [Signal-CLI Registration Guide](/channels/signal-cli-registration) for complete instructions on registering a new Signal number from scratch.
+
 ## Quick setup (beginner)
+
+**Option A: Link an existing Signal account**
 1) Use a **separate Signal number** for the bot (recommended).
 2) Install `signal-cli` (Java required).
 3) Link the bot device and start the daemon:
    - `signal-cli link -n "Clawdbot"`
 4) Configure Clawdbot and start the gateway.
+
+**Option B: Register a new Signal number**
+1) Follow the [Signal-CLI Registration Guide](/channels/signal-cli-registration) to register a new number.
+2) Configure Clawdbot with the registered number.
+3) Start the gateway.
 
 Minimal config:
 ```json5
@@ -52,10 +60,15 @@ Disable with:
 - For "I text the bot and it replies," use a **separate bot number**.
 
 ## Setup (fast path)
+
+### Linking an existing account
 1) Install `signal-cli` (Java required).
 2) Link a bot account:
    - `signal-cli link -n "Clawdbot"` then scan the QR in Signal.
 3) Configure Signal and start the gateway.
+
+### Registering a new number
+For complete registration instructions, see the [Signal-CLI Registration Guide](/channels/signal-cli-registration).
 
 Example:
 ```json5
