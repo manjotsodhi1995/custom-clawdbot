@@ -4,13 +4,7 @@ import { stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
 import { clawdbotApiConfig, remoteCodeConfig } from "../../config/blackbox-env.js";
 
-const REMOTE_CODE_COMMANDS = [
-  "start",
-  "repos",
-  "branches",
-  "create-task",
-  "webhook",
-] as const;
+const REMOTE_CODE_COMMANDS = ["start", "repos", "branches", "create-task", "webhook"] as const;
 
 const RemoteCodeToolSchema = Type.Object({
   command: stringEnum(REMOTE_CODE_COMMANDS),
@@ -19,6 +13,8 @@ const RemoteCodeToolSchema = Type.Object({
   repo: Type.Optional(Type.String()),
   branch: Type.Optional(Type.String()),
   prompt: Type.Optional(Type.String()),
+  platform: Type.Optional(Type.String()),
+  platformUserId: Type.Optional(Type.String()),
 });
 
 const REMOTE_CODE_BASE_URL = remoteCodeConfig.apiUrl;
@@ -37,7 +33,7 @@ async function callRemoteCodeAPI(
     baseUrl: REMOTE_CODE_BASE_URL,
     hasApiKey: !!CLAWDBOT_API_KEY,
     apiKeyLength: CLAWDBOT_API_KEY?.length || 0,
-    apiKeyPrefix: CLAWDBOT_API_KEY ? `${CLAWDBOT_API_KEY.substring(0, 10)}...` : 'none',
+    apiKeyPrefix: CLAWDBOT_API_KEY ? `${CLAWDBOT_API_KEY.substring(0, 10)}...` : "none",
     hasBody: !!body,
     queryParams: queryParams ? Object.keys(queryParams) : [],
   });
@@ -74,7 +70,11 @@ async function callRemoteCodeAPI(
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    console.log(`[remote-code-tool] [${requestId}] Response status:`, response.status, response.statusText);
+    console.log(
+      `[remote-code-tool] [${requestId}] Response status:`,
+      response.status,
+      response.statusText,
+    );
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
@@ -112,12 +112,14 @@ export function createRemoteCodeTool(): AnyAgentTool {
       const params = args as Record<string, unknown>;
       const command = readStringParam(params, "command", { required: true });
       const executionId = `exec_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      
+
       console.log(`[remote-code-tool] [${executionId}] Executing command:`, {
         command,
         toolCallId: _toolCallId,
         params: {
-          phoneNumber: params.phoneNumber ? `${String(params.phoneNumber).substring(0, 4)}***` : undefined,
+          phoneNumber: params.phoneNumber
+            ? `${String(params.phoneNumber).substring(0, 4)}***`
+            : undefined,
           message: params.message ? `${String(params.message).substring(0, 50)}...` : undefined,
           repo: params.repo,
           branch: params.branch,
@@ -129,11 +131,9 @@ export function createRemoteCodeTool(): AnyAgentTool {
         switch (command) {
           case "start": {
             const phoneNumber = readStringParam(params, "phoneNumber", { required: true });
-            const result = await callRemoteCodeAPI(
-              "/api/clawdbot/conversation/start",
-              "POST",
-              { phoneNumber },
-            );
+            const result = await callRemoteCodeAPI("/api/clawdbot/conversation/start", "POST", {
+              phoneNumber,
+            });
             return jsonResult(result);
           }
 
@@ -174,13 +174,22 @@ export function createRemoteCodeTool(): AnyAgentTool {
           }
 
           case "webhook": {
-            const phoneNumber = readStringParam(params, "phoneNumber", { required: true });
+            const phoneNumber = readStringParam(params, "phoneNumber", { required: false });
+            const platformUserId = readStringParam(params, "platformUserId", { required: false });
             const message = readStringParam(params, "message", { required: true });
-            const result = await callRemoteCodeAPI(
-              "/api/clawdbot/webhook",
-              "POST",
-              { phoneNumber, message },
-            );
+            const platform = readStringParam(params, "platform", { required: false }) || "signal";
+
+            // Use platformUserId if provided, otherwise fall back to phoneNumber
+            const userId = platformUserId || phoneNumber;
+            if (!userId) {
+              throw new Error("Either platformUserId or phoneNumber must be provided");
+            }
+
+            const result = await callRemoteCodeAPI("/api/webhooks/messaging", "POST", {
+              platform,
+              message,
+              platformUserId: userId,
+            });
             return jsonResult(result);
           }
 

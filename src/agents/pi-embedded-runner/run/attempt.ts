@@ -523,8 +523,7 @@ export async function runEmbeddedAttempt(
 
         const originalStreamFn = activeSession.agent.streamFn;
         const REMOTE_CODE_BASE_URL =
-          remoteCodeConfig.apiUrl ||
-          "https://remote-code-feat-custom-clawdbot-jnqdrwdwga-uc.a.run.app";
+          remoteCodeConfig.apiUrl || "https://markita-unenjoyable-lucinda.ngrok-free.dev";
         const CLAWDBOT_API_KEY = clawdbotApiConfig.apiKey || "1234567890";
         const senderE164 = params.senderE164;
 
@@ -937,9 +936,13 @@ Your message was: "${messageText}"`;
                 `[blackbox-remote-code] Slack phone detected - proceeding with webhook call`,
               );
             }
+            // Determine platform from message channel
+            const platform = params.messageChannel || params.messageProvider || "signal";
+
             // For Telegram, include name, username, and user ID in the payload
             const webhookPayload: any = {
-              phoneNumber: phoneNumber,
+              platform: platform,
+              platformUserId: phoneNumber,
               message: messageText,
             };
 
@@ -953,15 +956,16 @@ Your message was: "${messageText}"`;
             }
 
             console.log(`[blackbox-remote-code] Auto-forwarding to webhook:`, {
-              url: `${REMOTE_CODE_BASE_URL}/api/clawdbot/webhook`,
-              phoneNumber: phoneNumber.substring(0, 4) + "***",
+              url: `${REMOTE_CODE_BASE_URL}/api/webhooks/messaging`,
+              platform: platform,
+              platformUserId: phoneNumber.substring(0, 4) + "***",
               messageLength: messageText.length,
               payload: webhookPayload,
             });
 
             try {
               // Call remote-code webhook directly
-              const response = await fetch(`${REMOTE_CODE_BASE_URL}/api/clawdbot/webhook`, {
+              const response = await fetch(`${REMOTE_CODE_BASE_URL}/api/webhooks/messaging`, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
