@@ -1,6 +1,7 @@
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
+import { registerRemoteCodeWebhook } from "../agents/tools/remote-code-tool.js";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
 import { createDefaultDeps } from "../cli/deps.js";
@@ -226,6 +227,10 @@ export async function startGatewayServer(
     coreGatewayHandlers,
     baseMethods,
   });
+
+  // Register remote-code webhook endpoint for receiving messages from remote service
+  const unregisterRemoteCodeWebhook = registerRemoteCodeWebhook();
+
   const channelLogs = Object.fromEntries(
     listChannelPlugins().map((plugin) => [plugin.id, logChannels.child(plugin.id)]),
   ) as Record<ChannelId, ReturnType<typeof createSubsystemLogger>>;
@@ -579,6 +584,8 @@ export async function startGatewayServer(
         skillsRefreshTimer = null;
       }
       skillsChangeUnsub();
+      // Unregister remote-code webhook
+      unregisterRemoteCodeWebhook();
       await close(opts);
     },
   };

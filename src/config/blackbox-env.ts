@@ -3,9 +3,13 @@
  * Centralized access to Blackbox-related environment variables
  */
 
+// Static API key for webhook authentication
+// TODO: Move to environment variable for production use
+const STATIC_API_KEY = "1234567890";
+
 export const clawdbotApiConfig = {
   get apiKey(): string {
-    return process.env.CLAWDBOT_API_KEY?.trim() || "1234567890";
+    return STATIC_API_KEY;
   },
 
   setApiKey(key: string): void {
@@ -13,8 +17,8 @@ export const clawdbotApiConfig = {
   },
 
   get isConfigured(): boolean {
-    const key = process.env.CLAWDBOT_API_KEY?.trim();
-    return !!key && key !== "1234567890";
+    const key = process.env.CLAWDBOT_API_KEY?.trim() || STATIC_API_KEY;
+    return !!key;
   },
 };
 

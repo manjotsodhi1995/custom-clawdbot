@@ -3,6 +3,8 @@ import { Type } from "@sinclair/typebox";
 import { stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
 import { clawdbotApiConfig, remoteCodeConfig } from "../../config/blackbox-env.js";
+import { registerPluginHttpRoute } from "../../plugins/http-registry.js";
+import { handleRemoteCodeWebhook } from "./remote-code-webhook-handler.js";
 
 const REMOTE_CODE_COMMANDS = ["start", "repos", "branches", "create-task", "webhook"] as const;
 
@@ -99,6 +101,28 @@ async function callRemoteCodeAPI(
     });
     throw error;
   }
+}
+
+/**
+ * Register the webhook endpoint for receiving messages from the remote service.
+ * This should be called during application initialization.
+ */
+export function registerRemoteCodeWebhook(): () => void {
+  const webhookPath = "/api/remote-code/webhook";
+
+  console.log(`[remote-code-tool] Registering webhook endpoint at ${webhookPath}`);
+
+  const unregister = registerPluginHttpRoute({
+    path: webhookPath,
+    handler: handleRemoteCodeWebhook,
+    pluginId: "remote-code-webhook",
+    source: "remote-code-tool",
+    log: (message) => console.log(`[remote-code-tool] ${message}`),
+  });
+
+  console.log(`[remote-code-tool] Webhook endpoint registered successfully at ${webhookPath}`);
+
+  return unregister;
 }
 
 export function createRemoteCodeTool(): AnyAgentTool {
