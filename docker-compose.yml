@@ -1,119 +1,39 @@
-# ClawdBot Docker Compose Configuration
-# Supports Telegram, Signal, and Slack channels
-
 version: '3.8'
 
 services:
   clawdbot:
-    image: ${CLAWDBOT_IMAGE:-clawdbot:latest}
     build:
       context: .
-      dockerfile: Dockerfile
-      args:
-        SIGNAL_CLI_VERSION: ${SIGNAL_CLI_VERSION:-0.13.9}
+      dockerfile: Dockerfile.lightweight
     container_name: clawdbot-gateway
     restart: unless-stopped
-    
-    # Environment variables
-    env_file:
-      - .env
-    environment:
-      # Core settings
-      NODE_ENV: ${NODE_ENV:-production}
-      HOME: /home/clawdbot
-      TERM: xterm-256color
-      
-      # Gateway settings
-      CLAWDBOT_CONFIG_DIR: /home/clawdbot/.clawdbot
-      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND:-lan}
-      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
-      
-      # Telegram configuration
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      
-      # Slack configuration
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
-      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
-      
-      # Signal configuration
-      SIGNAL_PHONE_NUMBER: ${SIGNAL_PHONE_NUMBER:-}
-      
-      # Discord configuration (optional)
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
-      
-      # Model configuration
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      
-      # Remote code webhook (if using)
-      REMOTE_CODE_API_URL: ${REMOTE_CODE_API_URL:-}
-      CLAWDBOT_API_KEY: ${CLAWDBOT_API_KEY:-}
-      
-      # Optional settings
-      GOG_KEYRING_PASSWORD: ${GOG_KEYRING_PASSWORD:-}
-      XDG_CONFIG_HOME: /home/clawdbot/.clawdbot
-    
-    # Volume mounts for persistence
-    volumes:
-      # Main config directory
-      - ${CLAWDBOT_CONFIG_DIR:-./clawdbot-data}:/home/clawdbot/.clawdbot
-      
-      # Workspace directory
-      - ${CLAWDBOT_WORKSPACE_DIR:-./clawdbot-data/workspace}:/home/clawdbot/.clawdbot/workspace
-      
-      # Signal-cli data directory
-      - ${SIGNAL_CLI_DATA_DIR:-./signal-cli-data}:/home/clawdbot/.local/share/signal-cli
-      
-      # Telegram session data (optional)
-      - ${TELEGRAM_DATA_DIR:-./telegram-data}:/home/clawdbot/.clawdbot/telegram
-    
-    # Port mappings
     ports:
-      # Gateway port (localhost only for security)
-      - "${GATEWAY_HOST:-127.0.0.1}:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
-    
-    # Health check
+      - "18789:18789"
+    environment:
+      - NODE_ENV=production
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+      - SIGNAL_ACCOUNT=${SIGNAL_ACCOUNT}
+      - GATEWAY_PORT=18789
+    volumes:
+      - clawdbot-data:/home/clawdbot/.clawdbot
+      - ./config:/app/config:ro
+    networks:
+      - clawdbot-net
     healthcheck:
-      test: ["/docker-entrypoint.sh", "health"]
+      test: ["CMD", "curl", "-f", "http://localhost:18789/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    
-    # Network configuration
-    networks:
-      - clawdbot-network
-    
-    # Resource limits (optional, adjust as needed)
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      start_period: 60s
 
-# Named volumes (alternative to bind mounts)
 volumes:
-  clawdbot-config:
-    driver: local
-  clawdbot-workspace:
-    driver: local
-  signal-cli-data:
-    driver: local
-  telegram-data:
+  clawdbot-data:
     driver: local
 
-# Network configuration
 networks:
-  clawdbot-network:
+  clawdbot-net:
     driver: bridge
